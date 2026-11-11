@@ -2,12 +2,12 @@
 <html lang="ar" dir="rtl">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>NEON STRIKE — 3D Shooter</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body { width: 100%; height: 100%; overflow: hidden; background: #05060f; }
-  body { font-family: 'Segoe UI', Tahoma, sans-serif; user-select: none; }
+  body { font-family: 'Segoe UI', Tahoma, sans-serif; user-select: none; touch-action: none; overscroll-behavior: none; }
   canvas { display: block; }
 
   #hud { position: fixed; inset: 0; pointer-events: none; z-index: 10; }
@@ -76,6 +76,19 @@
   /* Wave banner */
   #wave-banner { position: absolute; top: 32%; left: 50%; transform: translate(-50%, -50%) scale(.8); font-size: 52px; font-weight: 900; color: #fff; letter-spacing: 6px; text-shadow: 0 0 30px rgba(0,255,200,.8); opacity: 0; transition: all .4s; }
   #wave-banner.show { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+
+  /* Touch controls (mobile) */
+  #touch-ui { display: none; }
+  body.touch #touch-ui { display: block; }
+  #joystick { position: absolute; bottom: 90px; left: 40px; width: 120px; height: 120px; border-radius: 50%; background: rgba(0,255,200,.08); border: 2px solid rgba(0,255,200,.35); pointer-events: auto; }
+  #stick { position: absolute; top: 35px; left: 35px; width: 50px; height: 50px; border-radius: 50%; background: rgba(0,255,200,.35); box-shadow: 0 0 12px rgba(0,255,200,.5); }
+  .tbtn { position: absolute; pointer-events: auto; display: flex; align-items: center; justify-content: center; border-radius: 50%; background: rgba(0,255,200,.12); border: 2px solid rgba(0,255,200,.4); color: #cff; box-shadow: 0 0 14px rgba(0,255,200,.25); }
+  #btn-fire { bottom: 110px; right: 44px; width: 92px; height: 92px; font-size: 34px; }
+  #btn-jump { bottom: 235px; right: 60px; width: 64px; height: 64px; font-size: 24px; }
+  #btn-reload { bottom: 90px; right: 170px; width: 64px; height: 64px; font-size: 24px; }
+  #pause-btn { top: 20px; right: 20px; width: 44px; height: 44px; font-size: 18px; }
+  body.touch #health-panel { bottom: 240px; }
+  body.touch #ammo-panel { bottom: 250px; }
 </style>
 </head>
 <body>
@@ -101,11 +114,19 @@
     <div id="ammo">30 <small>/ ∞</small></div>
     <div id="reload-hint">اضغط R لإعادة التلقيم</div>
   </div>
+  <div id="touch-ui">
+    <div id="joystick"><div id="stick"></div></div>
+    <div id="btn-fire" class="tbtn">🔥</div>
+    <div id="btn-jump" class="tbtn">⤒</div>
+    <div id="btn-reload" class="tbtn">⟳</div>
+    <div id="pause-btn" class="tbtn">⏸</div>
+  </div>
 </div>
 
 <div class="screen" id="start-screen">
   <h1>NEON STRIKE</h1>
   <p>لعبة إطلاق نار ثلاثية الأبعاد — اصمد أمام موجات الأعداء</p>
+  <p id="touch-hint" style="display:none">📱 عصا يسار للحركة • اسحب يمين الشاشة للتصويب • أزرار على اليمين</p>
   <div class="keys">
     <div class="key"><b>WASD</b> حركة</div>
     <div class="key"><b>الماوس</b> تصويب</div>
@@ -157,6 +178,16 @@ scene.fog = new THREE.FogExp2(0x05060f, 0.018);
 const camera = new THREE.PerspectiveCamera(75, innerWidth / innerHeight, 0.1, 300);
 const controls = new PointerLockControls(camera, document.body);
 scene.add(camera);
+
+/* ============ MOBILE / TOUCH ============ */
+const isTouch = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
+let yaw = 0, pitch = 0;
+if (isTouch) {
+  document.body.classList.add('touch');
+  camera.rotation.order = 'YXZ';
+  document.getElementById('touch-hint').style.display = 'block';
+  document.getElementById('reload-hint').textContent = 'اضغط زر ⟳ لإعادة التلقيم';
+}
 
 /* ============ LIGHTS ============ */
 scene.add(new THREE.HemisphereLight(0x334466, 0x080a14, 0.7));
@@ -515,9 +546,10 @@ const gameOverScreen = document.getElementById('game-over');
 function startGame() {
   initAudio();
   if (audio && audio.state === 'suspended') audio.resume();
-  controls.lock();
+  if (isTouch) beginPlay();
+  else controls.lock();
 }
-function resumeGame() { controls.lock(); }
+function resumeGame() { if (isTouch) beginPlay(); else controls.lock(); }
 function restartGame() {
   state.enemies.forEach(e => scene.remove(e.mesh));
   state.enemies = [];
@@ -532,7 +564,7 @@ function restartGame() {
 
 document.getElementById('start-btn').addEventListener('click', startGame);
 
-controls.addEventListener('lock', () => {
+function beginPlay() {
   startScreen.style.display = 'none';
   pauseScreen.style.display = 'none';
   if (!state.playing) {
@@ -540,16 +572,19 @@ controls.addEventListener('lock', () => {
     showWaveBanner('الموجة 1');
     updateHUD();
   }
-});
-controls.addEventListener('unlock', () => {
-  if (state.over) return;
-  state.playing = false;
-  pauseScreen.style.display = 'flex';
-});
+}
+if (!isTouch) {
+  controls.addEventListener('lock', beginPlay);
+  controls.addEventListener('unlock', () => {
+    if (state.over) return;
+    state.playing = false;
+    pauseScreen.style.display = 'flex';
+  });
+}
 
 function gameOver() {
   state.over = true; state.playing = false;
-  controls.unlock();
+  if (!isTouch) controls.unlock();
   document.getElementById('final-score').textContent = state.score;
   document.getElementById('final-wave').textContent = state.wave;
   pauseScreen.style.display = 'none';
@@ -560,6 +595,83 @@ function gameOver() {
 let mouseDown = false;
 document.addEventListener('mousedown', e => { if (e.button === 0) mouseDown = true; });
 document.addEventListener('mouseup', e => { if (e.button === 0) mouseDown = false; });
+
+/* ============ TOUCH INPUT ============ */
+let joyF = 0, joyR = 0, touchFiring = false;
+
+if (isTouch) {
+  const joy = document.getElementById('joystick');
+  const stick = document.getElementById('stick');
+  let joyId = null, lookId = null, joyCX = 0, joyCY = 0, lastX = 0, lastY = 0;
+
+  function moveStick(t) {
+    const dx = t.clientX - joyCX, dy = t.clientY - joyCY;
+    const max = 50;
+    const len = Math.min(Math.hypot(dx, dy), max);
+    const ang = Math.atan2(dy, dx);
+    stick.style.transform = `translate(${Math.cos(ang) * len}px, ${Math.sin(ang) * len}px)`;
+    joyR = (Math.cos(ang) * len) / max;
+    joyF = -(Math.sin(ang) * len) / max;
+  }
+
+  joy.addEventListener('touchstart', e => {
+    e.preventDefault(); e.stopPropagation();
+    const t = e.changedTouches[0];
+    joyId = t.identifier;
+    const r = joy.getBoundingClientRect();
+    joyCX = r.left + r.width / 2; joyCY = r.top + r.height / 2;
+    moveStick(t);
+  }, { passive: false });
+
+  joy.addEventListener('touchmove', e => {
+    e.preventDefault();
+    for (const t of e.changedTouches) if (t.identifier === joyId) moveStick(t);
+  }, { passive: false });
+
+  const endJoy = e => {
+    for (const t of e.changedTouches) if (t.identifier === joyId) {
+      joyId = null; joyF = 0; joyR = 0;
+      stick.style.transform = 'translate(0px, 0px)';
+    }
+  };
+  joy.addEventListener('touchend', endJoy);
+  joy.addEventListener('touchcancel', endJoy);
+
+  /* look: drag on the right side of the screen */
+  document.addEventListener('touchstart', e => {
+    const t = e.changedTouches[0];
+    if (t.clientX > innerWidth * 0.45 && lookId === null) {
+      lookId = t.identifier; lastX = t.clientX; lastY = t.clientY;
+    }
+  }, { passive: true });
+  document.addEventListener('touchmove', e => {
+    for (const t of e.changedTouches) if (t.identifier === lookId) {
+      yaw -= (t.clientX - lastX) * 0.006;
+      pitch -= (t.clientY - lastY) * 0.006;
+      pitch = THREE.MathUtils.clamp(pitch, -1.4, 1.4);
+      lastX = t.clientX; lastY = t.clientY;
+    }
+  }, { passive: true });
+  const endLook = e => {
+    for (const t of e.changedTouches) if (t.identifier === lookId) lookId = null;
+  };
+  document.addEventListener('touchend', endLook);
+  document.addEventListener('touchcancel', endLook);
+
+  const bindHold = (id, on, off) => {
+    const el = document.getElementById(id);
+    el.addEventListener('touchstart', e => { e.preventDefault(); e.stopPropagation(); on(); }, { passive: false });
+    el.addEventListener('touchend', e => { e.preventDefault(); e.stopPropagation(); off(); }, { passive: false });
+  };
+  bindHold('btn-fire', () => touchFiring = true, () => touchFiring = false);
+  bindHold('btn-jump', () => keys['Space'] = true, () => keys['Space'] = false);
+  document.getElementById('btn-reload').addEventListener('touchstart', e => { e.preventDefault(); e.stopPropagation(); startReload(); }, { passive: false });
+  document.getElementById('pause-btn').addEventListener('touchstart', e => {
+    e.preventDefault(); e.stopPropagation();
+    state.playing = false;
+    pauseScreen.style.display = 'flex';
+  }, { passive: false });
+}
 
 /* ============ LOOP ============ */
 const clock = new THREE.Clock();
@@ -573,12 +685,22 @@ function animate() {
     /* movement */
     const sprint = keys['ShiftLeft'] || keys['ShiftRight'];
     const speed = sprint ? 11 : 6.5;
-    const moveF = (keys['KeyW'] ? 1 : 0) - (keys['KeyS'] ? 1 : 0);
-    const moveR = (keys['KeyD'] ? 1 : 0) - (keys['KeyA'] ? 1 : 0);
+    if (isTouch) camera.rotation.set(pitch, yaw, 0);
+
+    let moveF = (keys['KeyW'] ? 1 : 0) - (keys['KeyS'] ? 1 : 0);
+    let moveR = (keys['KeyD'] ? 1 : 0) - (keys['KeyA'] ? 1 : 0);
+    if (isTouch && (joyF || joyR)) { moveF = joyF; moveR = joyR; }
     if (moveF || moveR) {
       const len = Math.hypot(moveF, moveR);
-      controls.moveForward((moveF / len) * speed * dt);
-      controls.moveRight((moveR / len) * speed * dt);
+      const mf = (moveF / len) * speed * dt;
+      const mr = (moveR / len) * speed * dt;
+      if (isTouch) {
+        camera.position.x += -Math.sin(yaw) * mf + Math.cos(yaw) * mr;
+        camera.position.z += -Math.cos(yaw) * mf - Math.sin(yaw) * mr;
+      } else {
+        controls.moveForward(mf);
+        controls.moveRight(mr);
+      }
       state.bobTime += dt * (sprint ? 14 : 9);
     }
 
@@ -604,7 +726,7 @@ function animate() {
 
     /* fire */
     state.fireCooldown -= dt;
-    if (mouseDown) shoot();
+    if (mouseDown || touchFiring) shoot();
 
     /* reload */
     if (state.reloading) {
